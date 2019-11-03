@@ -20,22 +20,26 @@ import (
 	"github.com/jpillora/opts"
 )
 
+const (
+	ffmpegImage = "jrottenberg/ffmpeg"
+)
+
 //BuiltTime is the build time in unix-epoch seconds
 var BuiltTime = "-"
 
 var c = struct {
-	Inputs       []string `type:"args" min:"1" help:"inputs are audio files and directories of audio files"`
+	Inputs       []string `opts:"mode=arg, min=1, help=inputs are audio files and directories of audio files"`
 	Output       string   `help:"Output file (defaults to <input>.m4a)"`
 	OutputFormat string   `help:"When output is 'stdout', output file format determines encoder"`
 	OutputType   string   `help:"When output is empty, output file is '<author> - <title>.<output type>'"`
-	Bitrate      int      `help:"Bitrate in KB/s (when source bitrate is higher)"`
+	MaxBitrate   int      `help:"Bitrate in KB/s (when source bitrate is higher)"`
 	NoStderr     bool     `help:"Detach stderr"`
 	Windows      bool     `help:"ID3 Windows support"`
 	Debug        bool     `help:"Show debug output"`
 }{
 	OutputFormat: "adts",
 	OutputType:   "m4a",
-	Bitrate:      64,
+	MaxBitrate:   48,
 }
 
 func main() {
@@ -102,13 +106,13 @@ func run() error {
 
 	bitrate := inputBitrate
 	if bitrate == 0 {
-		bitrate = c.Bitrate
+		bitrate = c.MaxBitrate
 	} else {
 		//covert from bytes/s to kilobytes/s
 		bitrate /= 1000
 	}
-	if c.Bitrate < bitrate {
-		bitrate = c.Bitrate
+	if c.MaxBitrate < bitrate {
+		bitrate = c.MaxBitrate
 	}
 
 	if output == "" {
@@ -120,6 +124,7 @@ func run() error {
 			ext := filepath.Ext(c.Inputs[0])
 			output = strings.TrimSuffix(filepath.Base(c.Inputs[0]), ext) + ".m4a"
 		}
+		output = strings.Replace(output, "/", " ", -1)
 	}
 	var err error
 	if output != "-" {
@@ -154,12 +159,12 @@ func run() error {
 		chapterNames[i] = strings.TrimSpace(nonAlpha.ReplaceAllString(f.Name, ""))
 	}
 
-	paths := make([]string, len(files))
+	inputPaths := make([]string, len(files))
 	offset := 0
 	for i, f := range files {
 		log.Printf("[#%3d] %s (%s)", i+1, f.Title, time.Duration(f.Format.Duration)*time.Millisecond)
 		//add path
-		paths[i] = f.Path
+		inputPaths[i] = f.Path
 		//write chapter
 		metadata.WriteString("[CHAPTER]\n")
 		metadata.WriteString("TIMEBASE=1/1000\n")
@@ -169,13 +174,49 @@ func run() error {
 		metadata.WriteString("title=" + chapterNames[i] + "\n")
 	}
 
+	allPaths := inputPaths
+	if output != "-" {
+		allPaths = append(inputPaths, output)
+	}
+
+	common := longestcommon.Prefix(allPaths)
+	i := strings.LastIndex(common, "/")
+	if i == -1 {
+		log.Panicf("common: no slash at all???")
+	}
+	mountDir := common[:i+1]
+	if mountDir == "" {
+		return fmt.Errorf("Files have no common dir")
+	}
+	if s, err := os.Stat(mountDir); err != nil || !s.IsDir() {
+		log.Panicf("common: not a dir???")
+	}
+	//
+	dockerArgs := []string{
+		"run", "--rm",
+		"-v", fmt.Sprintf("%s:%s", mountDir, mountDir),
+		"-w", mountDir,
+		ffmpegImage,
+	}
+
+	for i, f := range inputPaths {
+		inputPaths[i] = strings.TrimPrefix(f, mountDir)
+	}
+
+	metadataFile := filepath.Join(mountDir, "metadata.txt")
+	if err := ioutil.WriteFile(metadataFile, metadata.Bytes(), 0666); err != nil {
+		return fmt.Errorf("Failed to write metadata file")
+	}
+
 	args := []string{
 		"-hide_banner",
 		"-loglevel", "verbose",
-		"-i", "concat:" + strings.Join(paths, "|"),
-		"-i", "-", "-map_metadata", "1",
-		"-vn",
+		"-i", "concat:" + strings.Join(inputPaths, "|"),
+		"-i", metadataFile, "-map_metadata", "1",
+		"-vn", "-c:a", "libfdk_aac",
+		"-profile:a", "aac_he_v2",
 		"-b:a", strconv.Itoa(bitrate) + "k",
+		"-ac", "2",
 	}
 
 	if c.Windows {
@@ -184,24 +225,24 @@ func run() error {
 	if output == "-" {
 		args = append(args, "-f", c.OutputFormat, "pipe:1")
 	} else {
-		args = append(args, output, "-y")
+		args = append(args, strings.TrimPrefix(output, mountDir), "-y")
 	}
 
 	if c.Debug {
 		log.Printf("Metadata:\n\n%s\n\n", metadata.String())
+		log.Printf("Docker: %s", strings.Join(dockerArgs, " "))
 		log.Printf("Executing: ffmpeg %s", strings.Join(args, " "))
 	}
 
+	t0 := time.Now()
 	//progress bar
 	bar := pb.StartNew(totalMilli / 10)
 	bar.ShowFinalTime = true
 	bar.ShowCounters = false
 	bar.Update()
-
-	t0 := time.Now()
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := exec.Command("docker", append(dockerArgs, args...)...)
 	cmd.Dir = os.TempDir()
-	cmd.Stdin = strings.NewReader(metadata.String())
+	// cmd.Stdin = strings.NewReader(metadata.String())
 	if output == "-" {
 		cmd.Stdout = os.Stdout //attach stdout
 	}
