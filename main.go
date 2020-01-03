@@ -24,8 +24,8 @@ const (
 	ffmpegImage = "jrottenberg/ffmpeg"
 )
 
-//BuiltTime is the build time in unix-epoch seconds
-var BuiltTime = "-"
+//version is the build time in unix-epoch seconds
+var version = "0.0.0"
 
 var c = struct {
 	Inputs       []string `opts:"mode=arg, min=1, help=inputs are audio files and directories of audio files"`
@@ -52,7 +52,7 @@ var nonAlpha = regexp.MustCompile(`[^\s\w\-]`)
 
 func run() error {
 
-	opts.New(&c).Version(BuiltTime).Parse()
+	opts.New(&c).Version(version).Parse()
 
 	if len(c.Inputs) == 0 {
 		return errors.New("No input files provided")
@@ -352,8 +352,13 @@ func getMediaFile(path string) (*mediaFile, error) {
 		log.Printf("[debug] parse audio file: %s", path)
 	}
 	//extract media info
-	cmd := exec.Command("ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", path)
-	out, err := cmd.Output()
+	cmd := exec.Command(
+			"docker", "run", "--rm",
+			"-v", fmt.Sprintf("%s:%s", path, path),
+			"--entrypoint", "ffprobe",
+			ffmpegImage,
+			"-v", "error", "-show_format", "-show_streams", "-of", "json", path)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(out) > 0 {
 			err = errors.New(string(out))
