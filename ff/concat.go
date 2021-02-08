@@ -19,21 +19,20 @@ type Config struct {
 }
 
 func Concat(c Config) error {
-	m := concat{Config: c}
-	return m.Concat()
+	return (&concat{Config: c}).concat()
 }
 
 type concat struct {
 	Config
-	//
-	output   string
-	mountDir string
-	inputs   []string
 }
 
-func (c *concat) Concat() error {
+func (c *concat) concat() error {
 	if len(c.Inputs) == 0 {
 		return errors.New("No input files provided")
+	}
+	output, err := c.computeOutput()
+	if err != nil {
+		return err
 	}
 	count := new(int)
 	files := mediaFiles{}
@@ -45,28 +44,19 @@ func (c *concat) Concat() error {
 	if len(files) == 0 {
 		return errors.New("No audio files provided")
 	}
-	if err := c.computeInputs(files); err != nil {
-		return err
-	}
 	if err := c.probeMediaFiles(files); err != nil {
 		return err
 	}
-
-	m := &metadata{Config: c.Config}
-	if err := m.computeHeader(files); err != nil {
+	m, err := newMetadata(c.Config, files)
+	if err != nil {
 		return err
 	}
-	if err := m.computeBitrate(files); err != nil {
-		return err
+	if output == "" {
+		output = defaultOutput(files, m)
 	}
-	if err := c.computeOutput(files, m); err != nil {
-		return err
-	}
-
-	c.logf("Input '%s' by '%s' (#%d tracks, %s total, bitrate %dk -> %dk)",
-		m.title, m.author, len(files), m.duration, m.fileBitrate, m.bitrate)
-	return nil
-
+	c.logf("Input '%s' by '%s' (#%d tracks, %s total, bitrate %dk -> %dk)\nOutput: '%s'",
+		m.title, m.author, len(files), m.duration, m.fileBitrate, m.bitrate, output)
+	return c.ffmpegExec(m, files, output)
 }
 
 func (c *concat) logf(format string, args ...interface{}) {

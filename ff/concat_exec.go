@@ -2,7 +2,7 @@ package ff
 
 import (
 	"os/exec"
-	"path/filepath"
+	"strings"
 )
 
 func (m concat) image() string {
@@ -15,20 +15,27 @@ func (c *concat) docker(prog string) bool {
 		return true
 	}
 	_, err := exec.LookPath(prog)
-	return err == nil
+	installed := err == nil
+	return !installed
 }
 
-func (c *concat) metadataFile() string {
-	return filepath.Join(c.mountDir, "metadata.txt")
-}
-
-func (c *concat) cmd(prog string, args ...string) *exec.Cmd {
+func (c *concat) cmd(prog string, dockerArgs, ffArgs []string) *exec.Cmd {
 	if prog != "ffmpeg" && prog != "ffprobe" {
 		panic("unknown prog")
 	}
+	args := ffArgs
 	if c.docker(prog) {
+		d := []string{
+			"run", "--rm",
+			"--entrypoint", prog,
+		}
+		d = append(d, dockerArgs...)
+		d = append(d, c.image())
+		//convert to docker args
+		args = append(d, args...)
 		prog = "docker"
 	}
+	c.debugf("Command: %s %s", prog, strings.Join(args, " "))
 	cmd := exec.Command(prog, args...)
-	return cmd, nil
+	return cmd
 }

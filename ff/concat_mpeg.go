@@ -5,73 +5,79 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cheggaaa/pb"
+	"github.com/jpillora/longestcommon"
 )
 
-func (c *concat) ffmpegArgs(m *metadata) []string {
-
-	args := []string{}
-
-	if c.docker("ffmpeg") {
-		args = append(args,
-			"run", "--rm",
-			"-v", fmt.Sprintf("%s:%s", c.mountDir, c.mountDir),
-			"-w", c.mountDir,
-			"--entrypoint", "ffmpeg",
-			c.image(),
-		)
+func (c *concat) ffmpegExec(m *metadata, files mediaFiles, output string) error {
+	//input files
+	inputs := []string{}
+	for _, f := range files {
+		inputs = append(inputs, f.Path)
 	}
-
-	args = append(args,
+	//compute common dir
+	mountDir, err := baseDir(append(inputs, output))
+	if err != nil {
+		return err
+	}
+	if len(mountDir) < 2 {
+		return fmt.Errorf("invalid mount dir: %s", mountDir)
+	}
+	for i := range inputs {
+		inputs[i] = strings.TrimPrefix(inputs[i], mountDir)
+	}
+	//compute ffmpeg args
+	metadataFile := filepath.Join(mountDir, "metadata.txt")
+	ff := []string{
 		"-hide_banner",
 		"-loglevel", "verbose",
-		"-i", "concat:"+strings.Join(c.inputs, "|"),
-		"-i", c.metadataFile(), "-map_metadata", "1",
-		"-vn", "-c:a", "libfdk_aac",
+		"-i", "concat:" + strings.Join(inputs, "|"),
+		"-i", metadataFile, "-map_metadata", "1",
+		"-vn", "-c:a", "aac", //libfdk_
 		"-profile:a", "aac_he_v2",
-		"-b:a", strconv.Itoa(m.bitrate)+"k",
+		"-b:a", strconv.Itoa(m.bitrate) + "k",
 		"-ac", "2",
-	)
+	}
 	if c.Windows {
-		args = append(args, "-id3v2_version", "3", "-write_id3v1", "1")
+		ff = append(ff, "-id3v2_version", "3", "-write_id3v1", "1")
 	}
-	if c.output == "-" {
-		args = append(args, "-f", c.OutputFormat, "pipe:1")
+	if output == "-" {
+		ff = append(ff, "-f", c.OutputFormat, "pipe:1")
 	} else {
-		relaOut := strings.TrimPrefix(c.output, c.mountDir)
-		args = append(args, relaOut, "-y" /*yes, overwrite*/)
+		relaOut := strings.TrimPrefix(output, mountDir)
+		ff = append(ff, relaOut, "-y" /*yes, overwrite*/)
 	}
-	return args
-}
-
-func (c *concat) ffmpegExec(m *metadata) error {
-	if err := ioutil.WriteFile(c.metadataFile(), m.contents.Bytes(), 0666); err != nil {
+	//compute docker args
+	docker := []string{}
+	if c.docker("ffmpeg") {
+		docker = []string{
+			"-v", fmt.Sprintf("%s:%s", mountDir, mountDir),
+			"-w", mountDir,
+		}
+	}
+	if err := ioutil.WriteFile(metadataFile, m.contents.Bytes(), 0666); err != nil {
 		return fmt.Errorf("Failed to write metadata file")
 	}
+	defer os.Remove(metadataFile)
 	t0 := time.Now()
-	//progress bar
-	bar := pb.StartNew(int(m.duration.Milliseconds() / 10))
-	bar.ShowFinalTime = true
-	bar.ShowCounters = false
-	bar.Update()
-
-	cmd := c.cmd("ffmpeg", c.ffmpegArgs(m)...)
-	cmd.Dir = os.TempDir()
+	cmd := c.cmd("ffmpeg", docker, ff)
+	cmd.Dir = mountDir
 	// cmd.Stdin = strings.NewReader(metadata.String())
-	if c.output == "-" {
+	if output == "-" {
 		cmd.Stdout = os.Stdout //attach stdout
 	}
-
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("Failed to get ffmpeg stderr: %s", err)
 	}
+	//progress bar
+	bar := pb.StartNew(int(m.duration.Milliseconds() / 10))
 	//monitor err pipe for current progress
 	errbytes := bytes.Buffer{}
 	go func() {
@@ -96,12 +102,11 @@ func (c *concat) ffmpegExec(m *metadata) error {
 			bar.Set64(currMilli / 10)
 		}
 	}()
-
-	if c.Debug {
-		log.Printf("Metadata:\n\n%s\n\n", m.contents.String())
-		log.Printf("Execute: %s %s", cmd.Path, strings.Join(cmd.Args, " "))
-	}
-
+	c.debugf("Metadata:\n\n%s\n\n", m.contents.String())
+	//start
+	bar.ShowFinalTime = true
+	bar.ShowCounters = false
+	bar.Update()
 	if err := cmd.Run(); err != nil {
 		if errbytes.Len() > 0 {
 			err = errors.New(errbytes.String())
@@ -109,10 +114,25 @@ func (c *concat) ffmpegExec(m *metadata) error {
 		return fmt.Errorf("Failed to run ffmpeg: %s", err)
 	}
 	bar.FinishPrint("Done in " + time.Now().Sub(t0).String())
-	if c.Debug {
-		log.Printf("Error out: %s", errbytes.String())
-	}
-
+	c.debugf("Error out: %s", errbytes.String())
 	return nil
+}
 
+func baseDir(paths []string) (dir string, err error) {
+	common := longestcommon.Prefix(paths)
+	if len(common) < 2 {
+		return "", errors.New("no common dir")
+	}
+	i := strings.LastIndex(common, "/")
+	if i == -1 {
+		return "", fmt.Errorf("common: no slash in '%s'???", common)
+	}
+	mountDir := common[:i+1]
+	if mountDir == "" {
+		return "", fmt.Errorf("Files have no common dir")
+	}
+	if s, err := os.Stat(mountDir); err != nil || !s.IsDir() {
+		return "", fmt.Errorf("common dir not a dir")
+	}
+	return mountDir, nil
 }

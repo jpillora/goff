@@ -24,6 +24,20 @@ type metadata struct {
 	duration    time.Duration
 }
 
+func newMetadata(c Config, files mediaFiles) (*metadata, error) {
+	m := &metadata{Config: c}
+	if err := m.computeHeader(files); err != nil {
+		return nil, err
+	}
+	if err := m.computeBitrate(files); err != nil {
+		return nil, err
+	}
+	if err := m.computeChapters(files); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (m *metadata) computeHeader(files mediaFiles) error {
 	title := strSet{}
 	album := strSet{}

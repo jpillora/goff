@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 )
 
@@ -17,19 +16,21 @@ func (m concat) probeMediaFiles(files mediaFiles) error {
 	return nil
 }
 
-func (m concat) probeMediaFile(f *mediaFile) error {
-	m.debugf("probe audio file: %s", f.Path)
+func (c concat) probeMediaFile(f *mediaFile) error {
+	c.debugf("probe audio file: %s", f.Path)
 	//extract media info
-	cmd, err := m.cmd("ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", f.InputPath)
+	docker := []string{"-v", f.Path + ":" + f.Path}
+	ff := []string{"-v", "error", "-show_format", "-show_streams", "-of", "json", f.Path}
+	cmd := c.cmd("ffprobe", docker, ff)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(out) > 0 {
 			err = errors.New(string(out))
 		}
-		return fmt.Errorf("get file: %s: ffprobe: %s", f.InputPath, err)
+		return fmt.Errorf("get file: %s: ffprobe: %s", f.Path, err)
 	}
 	if err := json.Unmarshal(out, &f.probe); err != nil {
-		return fmt.Errorf("get file: %s: ffprobe: json: %s\n%s", f.InputPath, err, out)
+		return fmt.Errorf("get file: %s: ffprobe: json: %s\n%s", f.Path, err, out)
 	}
 	f.probed = true
 	//find title
@@ -39,12 +40,12 @@ func (m concat) probeMediaFile(f *mediaFile) error {
 	//
 	if f.probe.Format.DurationStr == "" {
 		// return nil, fmt.Errorf("get file: %s: missing duration: %s", path, string(out))
-		log.Printf("[WARNING] cannot find duration for: %s", f.InputPath)
+		c.logf("[WARNING] cannot find duration for: %s", f.Path)
 		f.probe.Format.Duration = 0
 	} else {
 		duration, err := strconv.ParseFloat(f.probe.Format.DurationStr, 64)
 		if err != nil {
-			return fmt.Errorf("get file: %s: parse-float: %s", f.InputPath, err)
+			return fmt.Errorf("get file: %s: parse-float: %s", f.Path, err)
 		}
 		f.probe.Format.Duration = int(duration * 1000)
 	}
@@ -53,10 +54,9 @@ func (m concat) probeMediaFile(f *mediaFile) error {
 
 //ffmpeg json outputs
 type mediaFile struct {
-	Path      string
-	InputPath string
-	Name      string
-	Ext       string
+	Path string
+	Name string
+	Ext  string
 	//
 	Title  string
 	Artist string
