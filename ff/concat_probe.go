@@ -20,7 +20,7 @@ func (c concat) probeMediaFile(f *mediaFile) error {
 	c.debugf("probe audio file: %s", f.Path)
 	//extract media info
 	docker := []string{"-v", f.Path + ":" + f.Path}
-	ff := []string{"-v", "error", "-show_format", "-show_streams", "-of", "json", f.Path}
+	ff := []string{"-v", "quiet", "-show_format", "-show_streams", "-of", "json", f.Path}
 	cmd := c.cmd("ffprobe", docker, ff)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -37,7 +37,7 @@ func (c concat) probeMediaFile(f *mediaFile) error {
 	if f.probe.Format.Tags.Title != "" {
 		f.Title = f.probe.Format.Tags.Title
 	}
-	//
+	//parse duration
 	if f.probe.Format.DurationStr == "" {
 		// return nil, fmt.Errorf("get file: %s: missing duration: %s", path, string(out))
 		c.logf("[WARNING] cannot find duration for: %s", f.Path)

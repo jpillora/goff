@@ -1,9 +1,10 @@
 #!/bin/bash
 echo "building" &&
-GOOS=linux go build -ldflags "-w -s -X main.BuiltTime=$(date -u +%s)" -o /tmp/gobin &&
-# echo "upxing" &&
-# upx /tmp/gobin &&
-echo "uploading" &&
-rsync -e "ssh -p 6969" --compress /tmp/gobin root@vultr.jpillora.com:/usr/local/bin/goff &&
-echo "done" &&
-rm /tmp/gobin
+  GOOS=linux GOARCH=amd64 go build -ldflags "-w -s -X main.built=$(date -u +%s)" -o /tmp/gobin &&
+  # echo "upxing" &&
+  # upx /tmp/gobin &&
+  echo "uploading" &&
+  rsync --compress /tmp/gobin kjp:/usr/local/bin/goff &&
+  echo "done" &&
+  rm /tmp/gobin
+cd

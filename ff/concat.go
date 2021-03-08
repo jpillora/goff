@@ -30,10 +30,6 @@ func (c *concat) concat() error {
 	if len(c.Inputs) == 0 {
 		return errors.New("No input files provided")
 	}
-	output, err := c.computeOutput()
-	if err != nil {
-		return err
-	}
 	count := new(int)
 	files := mediaFiles{}
 	for _, path := range c.Inputs {
@@ -51,8 +47,9 @@ func (c *concat) concat() error {
 	if err != nil {
 		return err
 	}
-	if output == "" {
-		output = defaultOutput(files, m)
+	output, err := c.computeOutput(files, m)
+	if err != nil {
+		return err
 	}
 	c.logf("Input '%s' by '%s' (#%d tracks, %s total, bitrate %dk -> %dk)\nOutput: '%s'",
 		m.title, m.author, len(files), m.duration, m.fileBitrate, m.bitrate, output)
