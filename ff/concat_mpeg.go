@@ -46,8 +46,8 @@ func (c *concat) ffmpegExec(m *metadata, files mediaFiles, output string) error 
 		"-loglevel", "verbose",
 		"-i", "concat:" + strings.Join(inputs, "|"),
 		"-i", "metadata.txt", "-map_metadata", "1",
-		"-vn", "-c:a", "aac", //libfdk_
-		"-profile:a", "aac_he_v2",
+		"-c:a", "aac",
+		"-vn",
 		"-b:a", strconv.Itoa(m.bitrate) + "k",
 		"-ac", "2",
 		"-movflags", "+faststart",
@@ -55,10 +55,10 @@ func (c *concat) ffmpegExec(m *metadata, files mediaFiles, output string) error 
 	if c.Windows {
 		ff = append(ff, "-id3v2_version", "3", "-write_id3v1", "1")
 	}
-	if output == "-" {
+	relaOut := strings.TrimPrefix(output, mountDir)
+	if relaOut == "-" {
 		ff = append(ff, "-f", c.OutputFormat, "pipe:1")
 	} else {
-		relaOut := strings.TrimPrefix(output, mountDir)
 		ff = append(ff, relaOut, "-y" /*yes, overwrite*/)
 	}
 	//compute docker args

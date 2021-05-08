@@ -16,7 +16,7 @@ func main() {
 	c := ff.Config{
 		OutputFormat: "adts",
 		OutputType:   "m4a",
-		MaxBitrate:   48,
+		MaxBitrate:   64,
 	}
 	if n, _ := strconv.ParseInt(built, 10, 64); n > 0 {
 		built = time.Unix(n, 0).String()
