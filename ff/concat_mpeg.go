@@ -62,10 +62,13 @@ func (c *concat) ffmpegExec(m *metadata, files mediaFiles, output string) error 
 		"-i", filesName,
 		"-i", metadataName, "-map_metadata", "1",
 		"-vn",
-		"-b:a", strconv.Itoa(m.bitrate) + "k",
 	}
-	if strings.HasSuffix(output, ".m4a") || strings.HasSuffix(output, ".mp4") {
-		ff = append(ff, "-movflags", "+faststart")
+	//
+	aac := strings.HasSuffix(output, ".m4a") || strings.HasSuffix(output, ".mp4")
+	if aac {
+		ff = append(ff, "-c:a", "libfdk_aac", "-b:a", strconv.Itoa(m.bitrate)+"k", "-cutoff", "18000", "-movflags", "+faststart")
+	} else {
+		ff = append(ff, "-b:a", strconv.Itoa(m.bitrate)+"k", "-cutoff", "18000")
 	}
 	if c.Windows {
 		ff = append(ff, "-id3v2_version", "3", "-write_id3v1", "1")

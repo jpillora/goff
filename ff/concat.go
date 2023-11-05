@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 )
 
 type Config struct {
@@ -40,6 +41,7 @@ func (c *concat) concat() error {
 	if len(files) == 0 {
 		return errors.New("No audio files provided")
 	}
+	sort.Sort(files)
 	if err := c.probeMediaFiles(files); err != nil {
 		return err
 	}

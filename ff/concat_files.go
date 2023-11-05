@@ -52,3 +52,15 @@ func (c concat) addPath(files *mediaFiles, path string, n *int) error {
 	*files = append(*files, f)
 	return nil
 }
+
+// sort interface for mediaFiles
+func (files mediaFiles) Len() int {
+	return len(files)
+}
+
+func (files mediaFiles) Less(i, j int) bool {
+	return padNums(files[i].Name) < padNums(files[j].Name)
+}
+func (files mediaFiles) Swap(i, j int) {
+	files[i], files[j] = files[j], files[i]
+}
